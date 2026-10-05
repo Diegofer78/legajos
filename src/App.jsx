@@ -892,9 +892,23 @@ export default function LegajosApp({ onLogout }) {
       return `<tr><td>${label}</td><td class="num">${cantidad || ""}</td><td class="num">${escapeHtml(money(monto))}</td></tr>`;
     };
 
+    const fechaCorta = (iso) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+      return m ? `${m[3]}/${m[2]}` : "—";
+    };
+    const porFecha = (a, b) => String(a.fecha || "").localeCompare(String(b.fecha || ""));
+    const detalleBloque = (titulo, columna, filas, total) => `
+      <div class="det">
+        <div class="det-head"><span>${titulo}</span><span>${columna}</span></div>
+        ${filas.length ? filas.join("") : `<div class="det-vacio">Sin movimientos</div>`}
+        <div class="det-total"><span>Total</span><span>${escapeHtml(money(total))}</span></div>
+      </div>`;
+    const detalleFila = (fecha, texto, monto) => `<div class="det-row"><span class="det-fecha">${escapeHtml(fecha)}</span><span class="det-texto">${escapeHtml(texto)}</span><span class="det-monto">${escapeHtml(money(monto))}</span></div>`;
+
     const recibos = seleccionados.map((emp) => {
       const liq = computeLiquidacionCompleta(emp, key);
       const pagos = getPagos(emp);
+      const mes = (emp.novedades || {})[key] || {};
       const nombre = escapeHtml(emp.nombre || emp.apellido ? `${emp.nombre || "—"} ${emp.apellido || "—"}` : "Legajo sin nombre");
 
       const haberes = [
@@ -922,6 +936,12 @@ export default function LegajosApp({ onLogout }) {
       }).join("");
       const totalAbonado = [1, 2, 3, 4].reduce((s, n) => s + (Number(pagos[`s${n}`]) || 0), 0);
       const saldoPendiente = liq.neto - totalAbonado;
+
+      const filasExtra = liq.extraDetalle.map((x) => detalleFila(x.fecha, `${x.horas} hs`, x.monto));
+      const filasAdelantos = [...(mes.adelantos || [])].filter((x) => Number(x.monto)).sort(porFecha)
+        .map((x) => detalleFila(fechaCorta(x.fecha), x.nota || "Adelanto", Number(x.monto)));
+      const filasMerc = [...(mes.mercaderia || [])].filter((x) => Number(x.monto)).sort(porFecha)
+        .map((x) => detalleFila(fechaCorta(x.fecha), x.concepto || "Mercadería", Number(x.monto)));
 
       return `
       <div class="recibo">
@@ -959,6 +979,12 @@ export default function LegajosApp({ onLogout }) {
             </div>
           </div>
         </div>
+        <div class="det-titulo">Detalle de novedades</div>
+        <div class="det-grid">
+          ${detalleBloque("Horas extra", "Importe", filasExtra, liq.montoExtra)}
+          ${detalleBloque("Adelantos", "Importe", filasAdelantos, liq.totalAdelantos)}
+          ${detalleBloque("Mercadería", "Importe", filasMerc, liq.totalMercaderia)}
+        </div>
       </div>`;
     }).join("");
 
@@ -971,14 +997,12 @@ export default function LegajosApp({ onLogout }) {
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; color: #21242a; padding: 0; margin: 0; font-size: 10px; }
-  .recibo { height: 148.5mm; padding: 8mm 10mm; display: flex; flex-direction: column; page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #999; }
-  .recibo:nth-child(2n) { border-bottom: none; page-break-after: always; break-after: page; }
-  .recibo:last-child { page-break-after: auto; }
+  .recibo { min-height: 146mm; padding: 7mm 10mm; display: flex; flex-direction: column; page-break-inside: avoid; break-inside: avoid; border-bottom: 1px dashed #999; }
   .recibo-head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1.5px solid #21242a; padding-bottom: 5px; margin-bottom: 7px; }
   .recibo-nombre { font-size: 14px; font-weight: 700; }
   .recibo-meta { font-size: 9.5px; color: #5c6167; margin-top: 2px; }
   .recibo-periodo { font-size: 11px; font-weight: 600; color: #5c6167; }
-  .recibo-cols { display: grid; grid-template-columns: 1.1fr 1fr; gap: 8mm; flex: 1; }
+  .recibo-cols { display: grid; grid-template-columns: 1.1fr 1fr; gap: 8mm; }
   .tabla { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
   .tabla th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: .03em; color: #5c6167; padding: 3px 2px; border-bottom: 1px solid #dcd9d0; }
   .tabla td { padding: 2.5px 2px; font-size: 10px; border-bottom: 1px solid #eee; }
@@ -989,6 +1013,15 @@ export default function LegajosApp({ onLogout }) {
   .neto-linea { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; }
   .neto-linea strong { font-size: 13px; }
   .neto-linea.saldo { border-top: 1px dashed #999; margin-top: 4px; padding-top: 6px; color: #a8562e; }
+  .det-titulo { margin-top: 8px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #21242a; padding-bottom: 2px; }
+  .det-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; margin-top: 4px; }
+  .det-head { display: flex; justify-content: space-between; font-size: 8.5px; text-transform: uppercase; letter-spacing: .03em; color: #5c6167; padding: 2px; border-bottom: 1px solid #dcd9d0; font-weight: 700; }
+  .det-row { display: flex; gap: 4px; padding: 2px; border-bottom: 1px solid #eee; font-size: 9.5px; }
+  .det-fecha { width: 30px; color: #5c6167; flex: none; }
+  .det-texto { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .det-monto { white-space: nowrap; text-align: right; }
+  .det-vacio { color: #999; font-style: italic; font-size: 9.5px; padding: 3px 2px; }
+  .det-total { display: flex; justify-content: space-between; font-size: 9.5px; font-weight: 700; border-top: 1px solid #21242a; padding: 3px 2px 0; margin-top: 1px; }
   .preview-bar { position: sticky; top: 0; background: #263a41; color: #fff; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; z-index: 10; }
   .preview-bar button { background: #fff; color: #263a41; border: none; border-radius: 3px; padding: 8px 16px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
   @media print { .preview-bar { display: none; } }
@@ -1404,8 +1437,9 @@ export default function LegajosApp({ onLogout }) {
         .row-item.item2 { grid-template-columns: 1.6fr 1fr 32px; }
         .row-item.embargo { grid-template-columns: 1.1fr 1fr 0.7fr 0.8fr 32px; }
         .row-item.adelanto { grid-template-columns: 0.9fr 0.9fr 1.4fr 32px; }
+        .row-item.mercaderia { grid-template-columns: 0.9fr 1.4fr 0.9fr 32px; }
         @media (max-width: 700px) {
-          .row-item.item2, .row-item.embargo, .row-item.adelanto { grid-template-columns: 1fr; }
+          .row-item.item2, .row-item.embargo, .row-item.adelanto, .row-item.mercaderia { grid-template-columns: 1fr; }
         }
         .ro-row { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; background: var(--paper); border-radius: 3px; font-size: 13px; }
         .ro-row .muted { color: var(--ink-soft); font-size: 12px; }
@@ -1958,20 +1992,21 @@ export default function LegajosApp({ onLogout }) {
                     <>
                       <div className="row-list">
                         {(mesActual.mercaderia || []).map((m2) => (
-                          <div className="row-item item2" key={m2.id}>
+                          <div className="row-item mercaderia" key={m2.id}>
+                            <Field label="Fecha"><input type="date" value={m2.fecha || ""} onChange={(e) => updateItemMes("mercaderia", m2.id, { fecha: e.target.value })} /></Field>
                             <Field label="Concepto"><input value={m2.concepto} onChange={(e) => updateItemMes("mercaderia", m2.id, { concepto: e.target.value })} placeholder="Ej: pedido semanal" /></Field>
                             <Field label="Monto (ARS)"><input type="number" min="0" step="0.01" value={m2.monto} onChange={(e) => updateItemMes("mercaderia", m2.id, { monto: e.target.value })} /></Field>
                             <button className="row-remove" onClick={() => removeItemMes("mercaderia", m2.id)} aria-label="Quitar concepto"><IconTrash /></button>
                           </div>
                         ))}
                       </div>
-                      <button className="add-row-btn" onClick={() => addItemMes("mercaderia", { id: uid(), concepto: "", monto: "" })}>+ Agregar concepto</button>
+                      <button className="add-row-btn" onClick={() => addItemMes("mercaderia", { id: uid(), fecha: monthKey(cursor.year, cursor.month) + "-01", concepto: "", monto: "" })}>+ Agregar concepto</button>
                     </>
                   ) : (
                     <div className="row-list">
                       {(mesActual.mercaderia || []).length === 0 && <p className="hint">Sin mercadería cargada este mes.</p>}
                       {(mesActual.mercaderia || []).map((m2) => (
-                        <div className="ro-row" key={m2.id}><span>{m2.concepto || "Sin concepto"}</span><strong>{money(m2.monto)}</strong></div>
+                        <div className="ro-row" key={m2.id}><span>{m2.fecha ? `${m2.fecha} · ` : ""}{m2.concepto || "Sin concepto"}</span><strong>{money(m2.monto)}</strong></div>
                       ))}
                     </div>
                   )}
