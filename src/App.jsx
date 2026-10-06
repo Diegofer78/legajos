@@ -1339,14 +1339,15 @@ export default function LegajosApp({ onLogout }) {
         @import url('https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
         * { box-sizing: border-box; }
+        body { margin: 0; }
         .app {
           --paper: #f3f2ee; --surface: #ffffff; --ink: #21242a; --ink-soft: #5c6167; --line: #dcd9d0;
           --primary: #3c5a64; --primary-dark: #263a41; --good: #5c7a4a; --warn: #a8562e; --plum: #6a4e6c;
           font-family: 'IBM Plex Sans', sans-serif; color: var(--ink); background: var(--paper);
-          min-height: 100vh; display: grid; grid-template-columns: 300px 1fr; font-size: 14px; line-height: 1.5;
+          min-height: 100vh; display: grid; grid-template-columns: 300px 1fr; grid-template-rows: auto 1fr; grid-template-areas: "top top" "side main"; font-size: 14px; line-height: 1.5;
         }
         @media (max-width: 780px) {
-          .app { grid-template-columns: 1fr; }
+          .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr; grid-template-areas: "top" "side" "main"; }
           .sidebar { display: ${(section === "legajos" && selectedId) || (section === "calendario" && calendarEmployeeId) || (section === "liquidacion" && liquidacionEmployeeId) || (section === "aguinaldo" && aguinaldoEmployeeId) || (section === "vacaciones" && vacacionesEmployeeId) ? "none" : "flex"}; }
           .main { display: ${(section === "legajos" && selectedId) || (section === "calendario" && calendarEmployeeId) || (section === "liquidacion" && liquidacionEmployeeId) || (section === "aguinaldo" && aguinaldoEmployeeId) || (section === "vacaciones" && vacacionesEmployeeId) || section === "boletas" || section === "estadisticas" ? "block" : "none"}; }
         }
@@ -1359,20 +1360,22 @@ export default function LegajosApp({ onLogout }) {
         input:focus, select:focus, button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; border-color: var(--primary); }
         input:disabled { background: var(--paper); color: var(--ink-soft); }
 
-        .sidebar { border-right: 1px solid var(--line); display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0; overflow-y: auto; }
-        .brand { padding: 22px 20px 16px; border-bottom: 1px solid var(--line); }
-        .brand-mark { font-size: 11px; letter-spacing: 0.04em; color: var(--ink-soft); }
-        .brand h1 { font-size: 21px; margin-top: 3px; color: var(--primary-dark); }
-        .nav-tabs { display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
-        .nav-tab { width: 100%; background: none; border: none; border-left: 3px solid transparent; padding: 8px 17px; font-size: 13px; color: var(--ink-soft); display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; }
+        .topbar { grid-area: top; position: sticky; top: 0; z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 24px; padding: 0 20px; min-height: 56px; }
+        .brand { display: flex; align-items: baseline; gap: 8px; flex: none; }
+        .brand-mark { font-size: 11px; letter-spacing: 0.04em; color: var(--ink-soft); order: 2; }
+        .brand h1 { font-size: 19px; color: var(--primary-dark); }
+        .nav-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+        .nav-tabs::-webkit-scrollbar { display: none; }
+        .nav-tab { background: none; border: none; border-bottom: 3px solid transparent; height: 56px; padding: 0 14px; font-size: 13px; color: var(--ink-soft); display: flex; align-items: center; gap: 7px; white-space: nowrap; flex: none; }
+        .nav-tab svg { width: 15px; height: 15px; flex: none; }
+        .sidebar { grid-area: side; border-right: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; height: calc(100vh - 56px); position: sticky; top: 56px; overflow-y: auto; }
+        .main { grid-area: main; }
         .nav-tab:hover { background: #eae8e2; }
-        .nav-tab.active { color: var(--primary-dark); font-weight: 600; border-left-color: var(--primary); background: #e7ede9; }
-        .sidebar-footer { flex: none; border-top: 1px solid var(--line); }
-        .sidebar-footer summary { cursor: pointer; padding: 9px 16px; font-size: 12px; color: var(--ink-soft); list-style: none; user-select: none; }
-        .sidebar-footer summary::-webkit-details-marker { display: none; }
-        .sidebar-footer summary::before { content: "▸ "; }
-        .sidebar-footer[open] summary::before { content: "▾ "; }
-        .sidebar-footer-body { padding: 0 16px 12px; display: flex; flex-direction: column; gap: 8px; }
+        .nav-tab.active { color: var(--primary-dark); font-weight: 600; border-bottom-color: var(--primary); }
+        .account-menu { position: relative; flex: none; }
+        .account-menu summary { cursor: pointer; font-size: 12px; color: var(--ink-soft); list-style: none; user-select: none; border: 1px solid var(--line); border-radius: 3px; padding: 6px 12px; white-space: nowrap; }
+        .account-menu summary::-webkit-details-marker { display: none; }
+        .account-menu-body { position: absolute; right: 0; top: calc(100% + 6px); width: 200px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
         .sidebar-tools { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
         .btn-new { background: var(--primary-dark); color: #fff; border: none; border-radius: 3px; padding: 10px 12px; font-size: 13.5px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .btn-new:hover { background: #1c2c31; }
@@ -1396,6 +1399,15 @@ export default function LegajosApp({ onLogout }) {
         .header-actions { display: flex; gap: 8px; }
         .back-link { display: none; background: none; border: none; color: var(--primary-dark); font-size: 13px; margin-bottom: 14px; padding: 0; }
         @media (max-width: 780px) { .back-link { display: inline-block; } .main { padding: 20px; } }
+        @media (max-width: 780px) {
+          .topbar { flex-wrap: wrap; gap: 0 12px; padding: 0 12px; position: static; }
+          .brand { order: 1; flex: 1; padding: 12px 0; }
+          .account-menu { order: 2; }
+          .nav-tabs { order: 3; flex: 1 0 100%; }
+          .nav-tab { height: 44px; padding: 0 12px; }
+          .sidebar { position: static; height: auto; overflow: visible; border-right: none; }
+          .emp-list { flex: none; min-height: 0; overflow: visible; }
+        }
         .del-btn { background: none; border: 1px solid var(--line); color: var(--warn); border-radius: 3px; padding: 8px 12px; font-size: 12.5px; }
         .del-btn:hover { background: #f6e9e2; }
         .btn-secondary { background: var(--surface); border: 1px solid var(--line); color: var(--primary-dark); border-radius: 3px; padding: 8px 12px; font-size: 12.5px; font-weight: 500; }
@@ -1562,7 +1574,7 @@ export default function LegajosApp({ onLogout }) {
         .print-only { display: none; }
 
         @media print {
-          .sidebar, .toast, .no-print { display: none !important; }
+          .topbar, .sidebar, .toast, .no-print { display: none !important; }
           .app { display: block; }
           .main { display: block !important; padding: 0; max-width: none; }
           .print-only { display: table-cell; }
@@ -1571,7 +1583,7 @@ export default function LegajosApp({ onLogout }) {
       `}</style>
 
       {/* SIDEBAR */}
-      <aside className="sidebar">
+      <header className="topbar">
         <div className="brand">
           <div className="brand-mark">LEGAJOS</div>
           <h1>Personal</h1>
@@ -1599,6 +1611,25 @@ export default function LegajosApp({ onLogout }) {
             <IconSun /> Vacaciones
           </button>
         </div>
+        <details className="account-menu">
+          <summary>Cuenta y respaldo ▾</summary>
+          <div className="account-menu-body">
+          <button className="btn-secondary" onClick={async () => { try { const n = await exportarRespaldo(); flash("Respaldo descargado (" + n + " registros)"); } catch (e) { flash("Error al exportar: " + e.message); } }}>Exportar respaldo</button>
+          <label className="btn-secondary" style={{ display: "block", cursor: "pointer", textAlign: "center" }}>
+            Importar respaldo
+            <input type="file" accept="application/json,.json" style={{ display: "none" }} onChange={(e) => {
+              const f = e.target.files && e.target.files[0]; e.target.value = "";
+              if (!f) return;
+              askConfirm("Se van a cargar los datos del respaldo (reemplazan los datos con la misma clave). ¿Continuar?", async () => {
+                try { const n = await importarRespaldo(f); flash("Importados " + n + " registros"); setTimeout(() => window.location.reload(), 800); } catch (err) { flash("Error al importar: " + err.message); }
+              });
+            }} />
+          </label>
+          {onLogout && <button className="btn-secondary" onClick={onLogout}>Cerrar sesión</button>}
+        </div>
+        </details>
+      </header>
+      <aside className="sidebar">
         {section === "legajos" && (
           <div className="sidebar-tools">
             <button className="btn-new" onClick={addEmployee}>+ Nuevo legajo</button>
@@ -1704,23 +1735,6 @@ export default function LegajosApp({ onLogout }) {
           ))}
         </div>
         )}
-        <details className="sidebar-footer">
-          <summary>Cuenta y respaldo</summary>
-          <div className="sidebar-footer-body">
-          <button className="btn-secondary" onClick={async () => { try { const n = await exportarRespaldo(); flash("Respaldo descargado (" + n + " registros)"); } catch (e) { flash("Error al exportar: " + e.message); } }}>Exportar respaldo</button>
-          <label className="btn-secondary" style={{ display: "block", cursor: "pointer", textAlign: "center" }}>
-            Importar respaldo
-            <input type="file" accept="application/json,.json" style={{ display: "none" }} onChange={(e) => {
-              const f = e.target.files && e.target.files[0]; e.target.value = "";
-              if (!f) return;
-              askConfirm("Se van a cargar los datos del respaldo (reemplazan los datos con la misma clave). ¿Continuar?", async () => {
-                try { const n = await importarRespaldo(f); flash("Importados " + n + " registros"); setTimeout(() => window.location.reload(), 800); } catch (err) { flash("Error al importar: " + err.message); }
-              });
-            }} />
-          </label>
-          {onLogout && <button className="btn-secondary" onClick={onLogout}>Cerrar sesión</button>}
-        </div>
-        </details>
       </aside>
 
       {/* MAIN */}
