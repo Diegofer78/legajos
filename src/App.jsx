@@ -1359,21 +1359,26 @@ export default function LegajosApp({ onLogout }) {
         input:focus, select:focus, button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; border-color: var(--primary); }
         input:disabled { background: var(--paper); color: var(--ink-soft); }
 
-        .sidebar { border-right: 1px solid var(--line); display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0; }
+        .sidebar { border-right: 1px solid var(--line); display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0; overflow-y: auto; }
         .brand { padding: 22px 20px 16px; border-bottom: 1px solid var(--line); }
         .brand-mark { font-size: 11px; letter-spacing: 0.04em; color: var(--ink-soft); }
         .brand h1 { font-size: 21px; margin-top: 3px; color: var(--primary-dark); }
         .nav-tabs { display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
-        .nav-tab { width: 100%; background: none; border: none; border-left: 3px solid transparent; padding: 11px 17px; font-size: 13px; color: var(--ink-soft); display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; }
+        .nav-tab { width: 100%; background: none; border: none; border-left: 3px solid transparent; padding: 8px 17px; font-size: 13px; color: var(--ink-soft); display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; }
         .nav-tab:hover { background: #eae8e2; }
         .nav-tab.active { color: var(--primary-dark); font-weight: 600; border-left-color: var(--primary); background: #e7ede9; }
-        .sidebar-footer { margin-top: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); }
+        .sidebar-footer { flex: none; border-top: 1px solid var(--line); }
+        .sidebar-footer summary { cursor: pointer; padding: 9px 16px; font-size: 12px; color: var(--ink-soft); list-style: none; user-select: none; }
+        .sidebar-footer summary::-webkit-details-marker { display: none; }
+        .sidebar-footer summary::before { content: "▸ "; }
+        .sidebar-footer[open] summary::before { content: "▾ "; }
+        .sidebar-footer-body { padding: 0 16px 12px; display: flex; flex-direction: column; gap: 8px; }
         .sidebar-tools { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
         .btn-new { background: var(--primary-dark); color: #fff; border: none; border-radius: 3px; padding: 10px 12px; font-size: 13.5px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .btn-new:hover { background: #1c2c31; }
         .link-danger { background: none; border: none; color: var(--warn); font-size: 12px; text-align: left; padding: 2px 0; }
         .link-danger:hover { text-decoration: underline; }
-        .emp-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+        .emp-list { flex: 1 1 0; min-height: 220px; overflow-y: auto; padding: 6px 0; }
         .emp-item { width: 100%; text-align: left; background: none; border: none; border-left: 3px solid transparent; padding: 11px 17px; display: block; }
         .emp-item:hover { background: #eae8e2; }
         .emp-item.active { background: #e7ede9; border-left-color: var(--primary); }
@@ -1699,7 +1704,9 @@ export default function LegajosApp({ onLogout }) {
           ))}
         </div>
         )}
-        <div className="sidebar-footer">
+        <details className="sidebar-footer">
+          <summary>Cuenta y respaldo</summary>
+          <div className="sidebar-footer-body">
           <button className="btn-secondary" onClick={async () => { try { const n = await exportarRespaldo(); flash("Respaldo descargado (" + n + " registros)"); } catch (e) { flash("Error al exportar: " + e.message); } }}>Exportar respaldo</button>
           <label className="btn-secondary" style={{ display: "block", cursor: "pointer", textAlign: "center" }}>
             Importar respaldo
@@ -1713,6 +1720,7 @@ export default function LegajosApp({ onLogout }) {
           </label>
           {onLogout && <button className="btn-secondary" onClick={onLogout}>Cerrar sesión</button>}
         </div>
+        </details>
       </aside>
 
       {/* MAIN */}
