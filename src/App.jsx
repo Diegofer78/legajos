@@ -47,6 +47,7 @@ function emptyEmployee() {
     fechaNacimiento: "", fechaIngreso: "", telefono: "", email: "", direccion: "",
     valorHora: "", jornadaNormal: "8", horasSabado: "0", horasDomingo: "0", presentismoBase: "",
     recargoSemana: "0", recargoSabado: "0", recargoDomingo: "0", recargoFeriado: "0",
+    conceptosFijos: [], // [{ desde: "2026-11", presentismo, noRemunerativo, adicionales:[], embargos:[] }]
     novedades: {}, // { "2026-09": { presentismo, noRemunerativo, adicionales:[], mercaderia:[], adelantos:[], embargos:[] } }
     calendario: {}, // { "2026-09": { "1": { horas, falta, feriado } } }
     pagosSemanales: {}, // { "2026-09": { s1, s2, s3, s4 } } - suma a abonar cargada cada semana
@@ -80,7 +81,7 @@ function computeLiquidacionCompleta(emp, key) {
   const jornada = Number(emp.jornadaNormal) || 0;
   const basico = valorHora * jornada * 30;
 
-  const mes = (emp.novedades || {})[key] || emptyMes(emp);
+  const mes = mesEfectivo(emp, key);
   const presentismo = Number(mes.presentismo) || 0;
   const noRemunerativo = Number(mes.noRemunerativo) || 0;
   const totalAdicionales = (mes.adicionales || []).reduce((s, a) => s + (Number(a.monto) || 0), 0);
@@ -248,6 +249,33 @@ function emptyMes(emp) {
   return { presentismo: emp.presentismoBase || "", noRemunerativo: "", adicionales: [], mercaderia: [], adelantos: [], embargos: [] };
 }
 
+// Conceptos fijos (presentismo, no remunerativo, adicionales, embargos): se guardan con una fecha
+// "vigente desde". Cada mes usa la vigencia más reciente que no sea posterior a ese mes; los meses
+// anteriores a la primera vigencia conservan los valores que ya tenían cargados.
+function cfVigente(emp, key) {
+  let v = null;
+  for (const c of emp.conceptosFijos || []) {
+    if (c.desde <= key && (!v || c.desde >= v.desde)) v = c;
+  }
+  return v;
+}
+function mesEfectivo(emp, key) {
+  const base = (emp.novedades || {})[key] || emptyMes(emp);
+  const cf = cfVigente(emp, key);
+  if (!cf) return base;
+  return { ...base, presentismo: cf.presentismo, noRemunerativo: cf.noRemunerativo, adicionales: cf.adicionales || [], embargos: cf.embargos || [] };
+}
+function cfBase(emp, desde) {
+  const prev = cfVigente(emp, desde);
+  const src = prev || (emp.novedades || {})[desde] || emptyMes(emp);
+  return {
+    presentismo: src.presentismo ?? "",
+    noRemunerativo: src.noRemunerativo ?? "",
+    adicionales: (src.adicionales || []).map((x) => ({ ...x })),
+    embargos: (src.embargos || []).map((x) => ({ ...x })),
+  };
+}
+
 function compressImage(file, maxW = 1000, quality = 0.72) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -337,6 +365,14 @@ function IconUsers() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM22 19v-1a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconNote() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M5 3h10l4 4v14H5z" strokeLinejoin="round" />
+      <path d="M9 12h6M9 16h6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -461,8 +497,10 @@ export default function LegajosApp({ onLogout }) {
 
   const now = new Date();
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
-  const [section, setSection] = useState("legajos"); // legajos | calendario | liquidacion | boletas | estadisticas | aguinaldo | vacaciones
+  const [section, setSection] = useState("legajos"); // legajos | calendario | novedades | liquidacion | boletas | estadisticas | aguinaldo | vacaciones
   const [calendarEmployeeId, setCalendarEmployeeId] = useState(null);
+  const [novedadesEmployeeId, setNovedadesEmployeeId] = useState(null);
+  const [cfDesde, setCfDesde] = useState(monthKey(now.getFullYear(), now.getMonth()));
   const [liquidacionEmployeeId, setLiquidacionEmployeeId] = useState(null);
   const [liquidacionResult, setLiquidacionResult] = useState(null);
   const [boletaSemana, setBoletaSemana] = useState(1);
@@ -644,25 +682,42 @@ export default function LegajosApp({ onLogout }) {
   // ---- novedades del mes ----
   const key = monthKey(cursor.year, cursor.month);
   const changeMonth = (delta) => setCursor((c) => shiftMonth(c.year, c.month, delta));
-  const mesActual = selected ? (selected.novedades[key] || emptyMes(selected)) : null;
 
-  const patchMes = (patch) => {
+  // ---- conceptos fijos (en el legajo) ----
+  const cfActual = selected ? cfBase(selected, cfDesde) : null;
+  const patchCF = (patch) => {
+    if (!selected || !/^\d{4}-\d{2}$/.test(cfDesde)) return;
+    const lista = selected.conceptosFijos || [];
+    const nuevo = { ...cfBase(selected, cfDesde), ...patch, desde: cfDesde };
+    const next = lista.some((c) => c.desde === cfDesde) ? lista.map((c) => (c.desde === cfDesde ? nuevo : c)) : [...lista, nuevo];
+    next.sort((a, b) => a.desde.localeCompare(b.desde));
+    patchEmployee(selected.id, { conceptosFijos: next });
+  };
+  const addItemCF = (campo, item) => patchCF({ [campo]: [...cfActual[campo], item] });
+  const updateItemCF = (campo, id2, patch) => patchCF({ [campo]: cfActual[campo].map((it) => (it.id === id2 ? { ...it, ...patch } : it)) });
+  const removeItemCF = (campo, id2) => patchCF({ [campo]: cfActual[campo].filter((it) => it.id !== id2) });
+  const quitarVigencia = (desde) => {
     if (!selected) return;
-    const nov = selected.novedades || {};
-    const base = nov[key] || emptyMes(selected);
-    patchEmployee(selected.id, { novedades: { ...nov, [key]: { ...base, ...patch } } });
+    patchEmployee(selected.id, { conceptosFijos: (selected.conceptosFijos || []).filter((c) => c.desde !== desde) });
   };
-  const addItemMes = (campo, item) => patchMes({ [campo]: [...(mesActual[campo] || []), item] });
-  const updateItemMes = (campo, id2, patch) =>
-    patchMes({ [campo]: (mesActual[campo] || []).map((it) => (it.id === id2 ? { ...it, ...patch } : it)) });
-  const removeItemMes = (campo, id2) =>
-    patchMes({ [campo]: (mesActual[campo] || []).filter((it) => it.id !== id2) });
+  const desdeLabel = (k) => { const [y, m] = k.split("-"); return `${MESES[Number(m) - 1]} ${y}`; };
 
-  const addAdelanto = () => {
-    if (!newAdelanto.monto) return;
-    addItemMes("adelantos", { id: uid(), fecha: newAdelanto.fecha || monthKey(cursor.year, cursor.month) + "-01", monto: newAdelanto.monto, nota: newAdelanto.nota });
-    setNewAdelanto({ fecha: "", monto: "", nota: "" });
+  // ---- novedades (adelantos y mercadería por mes) ----
+  const novedadesEmployee = empleados.find((e) => e.id === novedadesEmployeeId && e.activo !== false) || null;
+  const mesNov = novedadesEmployee ? ((novedadesEmployee.novedades || {})[key] || emptyMes(novedadesEmployee)) : null;
+  const patchMesNov = (patch) => {
+    if (!novedadesEmployee) return;
+    const nov = novedadesEmployee.novedades || {};
+    patchEmployee(novedadesEmployee.id, { novedades: { ...nov, [key]: { ...mesNov, ...patch } } });
   };
+  const fechaPorDefecto = () => {
+    const hoy = new Date();
+    return hoy.getFullYear() === cursor.year && hoy.getMonth() === cursor.month ? dateStr(cursor.year, cursor.month, hoy.getDate()) : dateStr(cursor.year, cursor.month, 1);
+  };
+  const addItemNov = (campo, item) => patchMesNov({ [campo]: [...(mesNov[campo] || []), item] });
+  const updateItemNov = (campo, id2, patch) => patchMesNov({ [campo]: (mesNov[campo] || []).map((it) => (it.id === id2 ? { ...it, ...patch } : it)) });
+  const removeItemNov = (campo, id2) => patchMesNov({ [campo]: (mesNov[campo] || []).filter((it) => it.id !== id2) });
+  const guardarNovedades = async () => { await persistList(empleados); };
 
   // ---- calendario ----
   const calendarEmployee = empleados.find((e) => e.id === calendarEmployeeId && e.activo !== false) || null;
@@ -1324,14 +1379,15 @@ export default function LegajosApp({ onLogout }) {
     { id: "documentacion", label: "Documentación" },
     { id: "remuneracion", label: "Remuneración" },
     { id: "horas", label: "Horas esperadas" },
-    { id: "novedades", label: "Novedades del mes" },
+    { id: "conceptos", label: "Conceptos fijos" },
   ];
 
   const p = selected ? photos[selected.id] || {} : {};
-  const totalAdicionales = mesActual ? (mesActual.adicionales || []).reduce((s, a) => s + (Number(a.monto) || 0), 0) : 0;
-  const totalMercaderia = mesActual ? (mesActual.mercaderia || []).reduce((s, m) => s + (Number(m.monto) || 0), 0) : 0;
-  const totalAdelantos = mesActual ? (mesActual.adelantos || []).reduce((s, a) => s + (Number(a.monto) || 0), 0) : 0;
-  const totalEmbargos = mesActual ? (mesActual.embargos || []).reduce((s, em) => s + (Number(em.valor) || 0), 0) : 0;
+  const sumaMonto = (lista) => (lista || []).reduce((t, x) => t + (Number(x.monto) || 0), 0);
+  const totalAdicionales = cfActual ? sumaMonto(cfActual.adicionales) : 0;
+  const totalEmbargos = cfActual ? (cfActual.embargos || []).reduce((t, em) => t + (Number(em.valor) || 0), 0) : 0;
+  const totalMercaderia = mesNov ? sumaMonto(mesNov.mercaderia) : 0;
+  const totalAdelantos = mesNov ? sumaMonto(mesNov.adelantos) : 0;
 
   return (
     <div className="app">
@@ -1348,8 +1404,8 @@ export default function LegajosApp({ onLogout }) {
         }
         @media (max-width: 780px) {
           .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr; grid-template-areas: "top" "side" "main"; }
-          .sidebar { display: ${(section === "legajos" && selectedId) || (section === "calendario" && calendarEmployeeId) || (section === "liquidacion" && liquidacionEmployeeId) || (section === "aguinaldo" && aguinaldoEmployeeId) || (section === "vacaciones" && vacacionesEmployeeId) ? "none" : "flex"}; }
-          .main { display: ${(section === "legajos" && selectedId) || (section === "calendario" && calendarEmployeeId) || (section === "liquidacion" && liquidacionEmployeeId) || (section === "aguinaldo" && aguinaldoEmployeeId) || (section === "vacaciones" && vacacionesEmployeeId) || section === "boletas" || section === "estadisticas" ? "block" : "none"}; }
+          .sidebar { display: ${(section === "legajos" && selectedId) || (section === "calendario" && calendarEmployeeId) || (section === "novedades" && novedadesEmployeeId) || (section === "liquidacion" && liquidacionEmployeeId) || (section === "aguinaldo" && aguinaldoEmployeeId) || (section === "vacaciones" && vacacionesEmployeeId) ? "none" : "flex"}; }
+          .main { display: ${(section === "legajos" && selectedId) || (section === "calendario" && calendarEmployeeId) || (section === "novedades" && novedadesEmployeeId) || (section === "liquidacion" && liquidacionEmployeeId) || (section === "aguinaldo" && aguinaldoEmployeeId) || (section === "vacaciones" && vacacionesEmployeeId) || section === "boletas" || section === "estadisticas" ? "block" : "none"}; }
         }
         h1, h2, h3 { font-family: 'Spectral', serif; margin: 0; font-weight: 600; }
         button { font-family: inherit; cursor: pointer; }
@@ -1451,6 +1507,11 @@ export default function LegajosApp({ onLogout }) {
 
         .row-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
         .row-item { display: grid; gap: 8px; align-items: end; padding: 12px; background: var(--paper); border-radius: 3px; }
+        .vig-bar { display: flex; gap: 16px; align-items: flex-end; background: #e7ede9; border-radius: 3px; padding: 10px 14px; margin-bottom: 16px; flex-wrap: wrap; }
+        .vig-bar .hint { flex: 1 1 280px; margin: 0; }
+        .vig-bar input { width: 170px; }
+        .link-btn { background: none; border: none; color: var(--primary-dark); font-size: 12.5px; text-decoration: underline; padding: 0; }
+        .total-descuento { background: var(--surface); border: 1.5px solid var(--ink); border-radius: 3px; padding: 12px 18px; font-size: 14px; }
         .row-item.item2 { grid-template-columns: 1.6fr 1fr 32px; }
         .row-item.embargo { grid-template-columns: 1.1fr 1fr 0.7fr 0.8fr 32px; }
         .row-item.adelanto { grid-template-columns: 0.9fr 0.9fr 1.4fr 32px; }
@@ -1595,6 +1656,9 @@ export default function LegajosApp({ onLogout }) {
           <button className={"nav-tab" + (section === "calendario" ? " active" : "")} onClick={() => setSection("calendario")}>
             <IconCalendar /> Calendario
           </button>
+          <button className={"nav-tab" + (section === "novedades" ? " active" : "")} onClick={() => setSection("novedades")}>
+            <IconNote /> Novedades
+          </button>
           <button className={"nav-tab" + (section === "liquidacion" ? " active" : "")} onClick={() => setSection("liquidacion")}>
             <IconReceipt /> Liquidación
           </button>
@@ -1646,6 +1710,15 @@ export default function LegajosApp({ onLogout }) {
         {section === "calendario" && (
           <div className="sidebar-tools">
             <input placeholder="Buscar por nombre, DNI, área…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </div>
+        )}
+        {section === "novedades" && (
+          <div className="sidebar-tools">
+            <input placeholder="Buscar por nombre, DNI, área…" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <select className="sucursal-filtro" value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)}>
+              <option value="">Todas las sucursales</option>
+              {sucursales.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
         )}
         {section === "liquidacion" && (
@@ -1706,6 +1779,12 @@ export default function LegajosApp({ onLogout }) {
           {section === "legajos" && filtered.map((e) => (
             <button key={e.id} className={"emp-item" + (e.id === selectedId ? " active" : "")} onClick={() => selectEmployee(e.id)}>
               <div className="emp-name">{e.nombre || e.apellido ? `${e.apellido || "—"}, ${e.nombre || "—"}` : "Legajo sin nombre"}{e.activo === false ? " (inactivo)" : ""}</div>
+              <div className="emp-meta">{e.dni ? `DNI ${e.dni}` : "Sin DNI"}{e.area ? ` · ${e.area}` : ""}</div>
+            </button>
+          ))}
+          {section === "novedades" && filteredActivos.map((e) => (
+            <button key={e.id} className={"emp-item" + (e.id === novedadesEmployeeId ? " active" : "")} onClick={() => setNovedadesEmployeeId(e.id)}>
+              <div className="emp-name">{e.nombre || e.apellido ? `${e.apellido || "—"}, ${e.nombre || "—"}` : "Legajo sin nombre"}</div>
               <div className="emp-meta">{e.dni ? `DNI ${e.dni}` : "Sin DNI"}{e.area ? ` · ${e.area}` : ""}</div>
             </button>
           ))}
@@ -1958,50 +2037,47 @@ export default function LegajosApp({ onLogout }) {
               </>
             )}
 
-            {tab === "novedades" && (
+            {tab === "conceptos" && (
               <>
-                <SectionCard
-                  accent="var(--good)" title="Presentismo y no remunerativo"
-                  headerExtra={
-                    <div className="month-nav">
-                      <button onClick={() => changeMonth(-1)} aria-label="Mes anterior"><IconChevron dir="left" /></button>
-                      <span className="label">{MESES[cursor.month]} {cursor.year}</span>
-                      <button onClick={() => changeMonth(1)} aria-label="Mes siguiente"><IconChevron dir="right" /></button>
-                    </div>
-                  }
-                >
+                <div className="vig-bar">
+                  <p className="hint">Estos valores se usan en la liquidación de todos los meses desde la fecha indicada. Los meses anteriores conservan lo que ya se liquidó. Los adelantos y la mercadería se cargan por mes en la sección Novedades.</p>
+                  <Field label="Vigente desde">
+                    <input type="month" value={cfDesde} onChange={(e) => e.target.value && setCfDesde(e.target.value)} />
+                  </Field>
+                </div>
+
+                <SectionCard accent="var(--good)" title="Presentismo y no remunerativo" subtitle="Montos mensuales fijos. El no remunerativo no entra en la base del aguinaldo.">
                   {editMode ? (
                     <div className="field-grid">
-                      <Field label="Presentismo a liquidar este mes (ARS)"><input type="number" min="0" step="0.01" value={mesActual.presentismo} onChange={(e) => patchMes({ presentismo: e.target.value })} /></Field>
-                      <Field label="No remunerativo (ARS)"><input type="number" min="0" step="0.01" value={mesActual.noRemunerativo} onChange={(e) => patchMes({ noRemunerativo: e.target.value })} /></Field>
+                      <Field label="Presentismo (ARS)"><input type="number" min="0" step="0.01" value={cfActual.presentismo} onChange={(e) => patchCF({ presentismo: e.target.value })} /></Field>
+                      <Field label="No remunerativo (ARS)"><input type="number" min="0" step="0.01" value={cfActual.noRemunerativo} onChange={(e) => patchCF({ noRemunerativo: e.target.value })} /></Field>
                     </div>
                   ) : (
                     <div className="field-grid">
-                      <ReadField label="Presentismo a liquidar este mes" value={mesActual.presentismo} money />
-                      <ReadField label="No remunerativo" value={mesActual.noRemunerativo} money />
+                      <ReadField label="Presentismo" value={cfActual.presentismo} money />
+                      <ReadField label="No remunerativo" value={cfActual.noRemunerativo} money />
                     </div>
                   )}
-                  <p className="hint">El presentismo se precarga con el valor sugerido de Remuneración; poné 0 si el empleado lo perdió este mes.</p>
                 </SectionCard>
 
-                <SectionCard accent="var(--good)" title="Adicionales del mes" subtitle="Bonos, viáticos u otro extra puntual de este mes.">
+                <SectionCard accent="var(--good)" title="Adicionales" subtitle="Conceptos que se suman todos los meses.">
                   {editMode ? (
                     <>
                       <div className="row-list">
-                        {(mesActual.adicionales || []).map((a) => (
+                        {cfActual.adicionales.map((a) => (
                           <div className="row-item item2" key={a.id}>
-                            <Field label="Concepto"><input value={a.concepto} onChange={(e) => updateItemMes("adicionales", a.id, { concepto: e.target.value })} placeholder="Ej: bono producción" /></Field>
-                            <Field label="Monto (ARS)"><input type="number" min="0" step="0.01" value={a.monto} onChange={(e) => updateItemMes("adicionales", a.id, { monto: e.target.value })} /></Field>
-                            <button className="row-remove" onClick={() => removeItemMes("adicionales", a.id)} aria-label="Quitar adicional"><IconTrash /></button>
+                            <Field label="Concepto"><input value={a.concepto} onChange={(e) => updateItemCF("adicionales", a.id, { concepto: e.target.value })} placeholder="Ej: antigüedad" /></Field>
+                            <Field label="Monto (ARS)"><input type="number" min="0" step="0.01" value={a.monto} onChange={(e) => updateItemCF("adicionales", a.id, { monto: e.target.value })} /></Field>
+                            <button className="row-remove" onClick={() => removeItemCF("adicionales", a.id)} aria-label="Quitar adicional"><IconTrash /></button>
                           </div>
                         ))}
                       </div>
-                      <button className="add-row-btn" onClick={() => addItemMes("adicionales", { id: uid(), concepto: "", monto: "" })}>+ Agregar adicional</button>
+                      <button className="add-row-btn" onClick={() => addItemCF("adicionales", { id: uid(), concepto: "", monto: "" })}>+ Agregar adicional</button>
                     </>
                   ) : (
                     <div className="row-list">
-                      {(mesActual.adicionales || []).length === 0 && <p className="hint">Sin adicionales cargados este mes.</p>}
-                      {(mesActual.adicionales || []).map((a) => (
+                      {cfActual.adicionales.length === 0 && <p className="hint">Sin adicionales fijos.</p>}
+                      {cfActual.adicionales.map((a) => (
                         <div className="ro-row" key={a.id}><span>{a.concepto || "Sin concepto"}</span><strong>{money(a.monto)}</strong></div>
                       ))}
                     </div>
@@ -2009,90 +2085,33 @@ export default function LegajosApp({ onLogout }) {
                   <div className="subtotal-line"><span>Total adicionales</span><strong>{money(totalAdicionales)}</strong></div>
                 </SectionCard>
 
-                <SectionCard accent="var(--warn)" title="Mercadería" subtitle="Consumo o retiro de mercadería que se descuenta del sueldo.">
+                <SectionCard accent="var(--warn)" title="Embargos" subtitle="Retenciones judiciales que se aplican todos los meses.">
                   {editMode ? (
                     <>
                       <div className="row-list">
-                        {(mesActual.mercaderia || []).map((m2) => (
-                          <div className="row-item mercaderia" key={m2.id}>
-                            <Field label="Fecha"><input type="date" value={m2.fecha || ""} onChange={(e) => updateItemMes("mercaderia", m2.id, { fecha: e.target.value })} /></Field>
-                            <Field label="Concepto"><input value={m2.concepto} onChange={(e) => updateItemMes("mercaderia", m2.id, { concepto: e.target.value })} placeholder="Ej: pedido semanal" /></Field>
-                            <Field label="Monto (ARS)"><input type="number" min="0" step="0.01" value={m2.monto} onChange={(e) => updateItemMes("mercaderia", m2.id, { monto: e.target.value })} /></Field>
-                            <button className="row-remove" onClick={() => removeItemMes("mercaderia", m2.id)} aria-label="Quitar concepto"><IconTrash /></button>
-                          </div>
-                        ))}
-                      </div>
-                      <button className="add-row-btn" onClick={() => addItemMes("mercaderia", { id: uid(), fecha: monthKey(cursor.year, cursor.month) + "-01", concepto: "", monto: "" })}>+ Agregar concepto</button>
-                    </>
-                  ) : (
-                    <div className="row-list">
-                      {(mesActual.mercaderia || []).length === 0 && <p className="hint">Sin mercadería cargada este mes.</p>}
-                      {(mesActual.mercaderia || []).map((m2) => (
-                        <div className="ro-row" key={m2.id}><span>{m2.fecha ? `${m2.fecha} · ` : ""}{m2.concepto || "Sin concepto"}</span><strong>{money(m2.monto)}</strong></div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="subtotal-line"><span>Total mercadería</span><strong>{money(totalMercaderia)}</strong></div>
-                </SectionCard>
-
-                <SectionCard accent="var(--warn)" title="Adelantos" subtitle="Dinero adelantado durante el mes, se descuenta de la liquidación.">
-                  {editMode ? (
-                    <>
-                      <div className="row-list">
-                        {(mesActual.adelantos || []).map((a) => (
-                          <div className="row-item adelanto" key={a.id}>
-                            <Field label="Fecha"><input type="date" value={a.fecha} onChange={(e) => updateItemMes("adelantos", a.id, { fecha: e.target.value })} /></Field>
-                            <Field label="Monto (ARS)"><input type="number" min="0" step="0.01" value={a.monto} onChange={(e) => updateItemMes("adelantos", a.id, { monto: e.target.value })} /></Field>
-                            <Field label="Nota"><input value={a.nota} onChange={(e) => updateItemMes("adelantos", a.id, { nota: e.target.value })} placeholder="Opcional" /></Field>
-                            <button className="row-remove" onClick={() => removeItemMes("adelantos", a.id)} aria-label="Quitar adelanto"><IconTrash /></button>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="row-item adelanto">
-                        <Field label="Fecha"><input type="date" value={newAdelanto.fecha} onChange={(e) => setNewAdelanto({ ...newAdelanto, fecha: e.target.value })} /></Field>
-                        <Field label="Monto (ARS)"><input type="number" min="0" step="0.01" value={newAdelanto.monto} onChange={(e) => setNewAdelanto({ ...newAdelanto, monto: e.target.value })} /></Field>
-                        <Field label="Nota"><input value={newAdelanto.nota} onChange={(e) => setNewAdelanto({ ...newAdelanto, nota: e.target.value })} placeholder="Opcional" /></Field>
-                        <button className="row-remove" onClick={addAdelanto} aria-label="Agregar adelanto" title="Agregar">+</button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="row-list">
-                      {(mesActual.adelantos || []).length === 0 && <p className="hint">Sin adelantos cargados este mes.</p>}
-                      {(mesActual.adelantos || []).map((a) => (
-                        <div className="ro-row" key={a.id}><span>{a.fecha || "Sin fecha"}{a.nota ? ` · ${a.nota}` : ""}</span><strong>{money(a.monto)}</strong></div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="subtotal-line"><span>Total adelantos del mes</span><strong>{money(totalAdelantos)}</strong></div>
-                </SectionCard>
-
-                <SectionCard accent="var(--warn)" title="Embargos" subtitle="Retención judicial correspondiente a este mes.">
-                  {editMode ? (
-                    <>
-                      <div className="row-list">
-                        {(mesActual.embargos || []).map((em) => (
+                        {cfActual.embargos.map((em) => (
                           <div className="row-item embargo" key={em.id}>
-                            <Field label="Entidad / expediente"><input value={em.entidad} onChange={(e) => updateItemMes("embargos", em.id, { entidad: e.target.value })} placeholder="Ej: Juzgado N°3" /></Field>
-                            <Field label="N° de expediente"><input value={em.expediente} onChange={(e) => updateItemMes("embargos", em.id, { expediente: e.target.value })} /></Field>
+                            <Field label="Entidad / expediente"><input value={em.entidad} onChange={(e) => updateItemCF("embargos", em.id, { entidad: e.target.value })} placeholder="Ej: Juzgado N°3" /></Field>
+                            <Field label="N° de expediente"><input value={em.expediente} onChange={(e) => updateItemCF("embargos", em.id, { expediente: e.target.value })} /></Field>
                             <Field label="Tipo">
-                              <select value={em.tipo} onChange={(e) => updateItemMes("embargos", em.id, { tipo: e.target.value })}>
+                              <select value={em.tipo} onChange={(e) => updateItemCF("embargos", em.id, { tipo: e.target.value })}>
                                 <option value="monto">Monto fijo</option>
                                 <option value="porcentaje">Porcentaje</option>
                               </select>
                             </Field>
                             <Field label={em.tipo === "porcentaje" ? "Valor (%)" : "Valor (ARS)"}>
-                              <input type="number" min="0" step="0.01" value={em.valor} onChange={(e) => updateItemMes("embargos", em.id, { valor: e.target.value })} />
+                              <input type="number" min="0" step="0.01" value={em.valor} onChange={(e) => updateItemCF("embargos", em.id, { valor: e.target.value })} />
                             </Field>
-                            <button className="row-remove" onClick={() => removeItemMes("embargos", em.id)} aria-label="Quitar embargo"><IconTrash /></button>
+                            <button className="row-remove" onClick={() => removeItemCF("embargos", em.id)} aria-label="Quitar embargo"><IconTrash /></button>
                           </div>
                         ))}
                       </div>
-                      <button className="add-row-btn" onClick={() => addItemMes("embargos", { id: uid(), entidad: "", expediente: "", tipo: "monto", valor: "" })}>+ Agregar embargo</button>
+                      <button className="add-row-btn" onClick={() => addItemCF("embargos", { id: uid(), entidad: "", expediente: "", tipo: "monto", valor: "" })}>+ Agregar embargo</button>
                     </>
                   ) : (
                     <div className="row-list">
-                      {(mesActual.embargos || []).length === 0 && <p className="hint">Sin embargos cargados este mes.</p>}
-                      {(mesActual.embargos || []).map((em) => (
+                      {cfActual.embargos.length === 0 && <p className="hint">Sin embargos cargados.</p>}
+                      {cfActual.embargos.map((em) => (
                         <div className="ro-row" key={em.id}>
                           <span>{em.entidad || "Sin entidad"}{em.expediente ? ` · Exp. ${em.expediente}` : ""}</span>
                           <strong>{em.tipo === "porcentaje" ? `${em.valor || 0}%` : money(em.valor)}</strong>
@@ -2102,8 +2121,86 @@ export default function LegajosApp({ onLogout }) {
                   )}
                   <div className="subtotal-line"><span>Total embargos (montos fijos)</span><strong>{money(totalEmbargos)}</strong></div>
                 </SectionCard>
+
+                {(selected.conceptosFijos || []).length > 0 && (
+                  <SectionCard accent="var(--primary)" title="Vigencias guardadas" subtitle="Cada fila es un cambio de valores; rige desde ese mes hasta el siguiente cambio.">
+                    <div className="row-list">
+                      {selected.conceptosFijos.map((c) => (
+                        <div className="ro-row" key={c.desde}>
+                          <span>Desde {desdeLabel(c.desde)}</span>
+                          <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                            <button className="link-btn" onClick={() => setCfDesde(c.desde)}>Ver</button>
+                            {editMode && <button className="link-danger" onClick={() => quitarVigencia(c.desde)}>Quitar</button>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
               </>
             )}
+          </>
+        )}
+
+        {section === "novedades" && !novedadesEmployee && (
+          <div className="empty-main">
+            <h2>Ningún legajo seleccionado</h2>
+            <p>Elegí un legajo de la lista para cargar los adelantos y la mercadería del mes.</p>
+          </div>
+        )}
+
+        {section === "novedades" && novedadesEmployee && (
+          <>
+            <button className="back-link" onClick={() => setNovedadesEmployeeId(null)}>← Volver a la lista</button>
+
+            <div className="detail-header">
+              <div>
+                <h2>{novedadesEmployee.nombre || novedadesEmployee.apellido ? `${novedadesEmployee.nombre || "—"} ${novedadesEmployee.apellido || "—"}` : "Legajo sin nombre"}</h2>
+                <div className="sub">Novedades — adelantos y mercadería del mes seleccionado.</div>
+              </div>
+              <div className="header-actions">
+                <div className="month-nav">
+                  <button onClick={() => changeMonth(-1)} aria-label="Mes anterior"><IconChevron dir="left" /></button>
+                  <span className="label">{MESES[cursor.month]} {cursor.year}</span>
+                  <button onClick={() => changeMonth(1)} aria-label="Mes siguiente"><IconChevron dir="right" /></button>
+                </div>
+                <button className="btn-save" onClick={guardarNovedades}>Guardar cambios</button>
+              </div>
+            </div>
+
+            <SectionCard accent="var(--warn)" title="Adelantos" subtitle="Dinero adelantado durante el mes, se descuenta de la liquidación.">
+              <div className="row-list">
+                {(mesNov.adelantos || []).map((a) => (
+                  <div className="row-item adelanto" key={a.id}>
+                    <Field label="Fecha"><input type="date" value={a.fecha || ""} onChange={(e) => updateItemNov("adelantos", a.id, { fecha: e.target.value })} /></Field>
+                    <Field label="Monto (ARS)"><input type="number" min="0" step="0.01" value={a.monto} onChange={(e) => updateItemNov("adelantos", a.id, { monto: e.target.value })} /></Field>
+                    <Field label="Nota"><input value={a.nota || ""} onChange={(e) => updateItemNov("adelantos", a.id, { nota: e.target.value })} placeholder="Opcional" /></Field>
+                    <button className="row-remove" onClick={() => removeItemNov("adelantos", a.id)} aria-label="Quitar adelanto"><IconTrash /></button>
+                  </div>
+                ))}
+                {(mesNov.adelantos || []).length === 0 && <p className="hint">Sin adelantos cargados este mes.</p>}
+              </div>
+              <button className="add-row-btn" onClick={() => addItemNov("adelantos", { id: uid(), fecha: fechaPorDefecto(), monto: "", nota: "" })}>+ Agregar adelanto</button>
+              <div className="subtotal-line"><span>Total adelantos del mes</span><strong>{money(totalAdelantos)}</strong></div>
+            </SectionCard>
+
+            <SectionCard accent="var(--warn)" title="Mercadería" subtitle="Consumo o retiro de mercadería que se descuenta del sueldo.">
+              <div className="row-list">
+                {(mesNov.mercaderia || []).map((m2) => (
+                  <div className="row-item mercaderia" key={m2.id}>
+                    <Field label="Fecha"><input type="date" value={m2.fecha || ""} onChange={(e) => updateItemNov("mercaderia", m2.id, { fecha: e.target.value })} /></Field>
+                    <Field label="Concepto"><input value={m2.concepto || ""} onChange={(e) => updateItemNov("mercaderia", m2.id, { concepto: e.target.value })} placeholder="Ej: pedido semanal" /></Field>
+                    <Field label="Monto (ARS)"><input type="number" min="0" step="0.01" value={m2.monto} onChange={(e) => updateItemNov("mercaderia", m2.id, { monto: e.target.value })} /></Field>
+                    <button className="row-remove" onClick={() => removeItemNov("mercaderia", m2.id)} aria-label="Quitar mercadería"><IconTrash /></button>
+                  </div>
+                ))}
+                {(mesNov.mercaderia || []).length === 0 && <p className="hint">Sin mercadería cargada este mes.</p>}
+              </div>
+              <button className="add-row-btn" onClick={() => addItemNov("mercaderia", { id: uid(), fecha: fechaPorDefecto(), concepto: "", monto: "" })}>+ Agregar mercadería</button>
+              <div className="subtotal-line"><span>Total mercadería del mes</span><strong>{money(totalMercaderia)}</strong></div>
+            </SectionCard>
+
+            <div className="subtotal-line total-descuento"><span>Total a descontar en {MESES[cursor.month]} {cursor.year}</span><strong>{money(totalAdelantos + totalMercaderia)}</strong></div>
           </>
         )}
 
