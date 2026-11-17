@@ -750,6 +750,25 @@ export default function LegajosApp({ onLogout }) {
     }
   };
 
+  const cargarHorasMasivo = () => {
+    const grupo = empleados.filter((e) => e.activo !== false && (!sucursalFiltro || e.sucursal === sucursalFiltro));
+    if (grupo.length === 0) { flash("No hay legajos para cargar"); return; }
+    const ambito = sucursalFiltro ? `la sucursal ${sucursalFiltro}` : "todas las sucursales";
+    askConfirm(`Se van a cargar las horas esperadas de ${MESES[cursor.month]} ${cursor.year} en ${grupo.length} legajo(s) de ${ambito}, reemplazando las horas, faltas y feriados ya cargados en ese mes. ¿Continuar?`, async () => {
+      const ids = new Set(grupo.map((e) => e.id));
+      const next = empleados.map((emp) => {
+        if (!ids.has(emp.id)) return emp;
+        const dias = {};
+        for (let d = 1; d <= totalDiasMes; d++) dias[String(d)] = { horas: horasEsperadasDia(emp, cursor.year, cursor.month, d), falta: false, feriado: false };
+        return { ...emp, calendario: { ...(emp.calendario || {}), [key]: dias } };
+      });
+      setEmpleados(next);
+      setLiquidacionResult(null);
+      await persistList(next);
+      flash(`Horas esperadas cargadas en ${grupo.length} legajo(s)`);
+    });
+  };
+
   const guardarCalendario = async () => {
     await persistList(empleados);
   };
@@ -1710,6 +1729,11 @@ export default function LegajosApp({ onLogout }) {
         {section === "calendario" && (
           <div className="sidebar-tools">
             <input placeholder="Buscar por nombre, DNI, área…" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <select className="sucursal-filtro" value={sucursalFiltro} onChange={(e) => setSucursalFiltro(e.target.value)}>
+              <option value="">Todas las sucursales</option>
+              {sucursales.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button className="btn-secondary" onClick={cargarHorasMasivo}>Cargar horas esperadas a {sucursalFiltro ? "la sucursal" : "todos"}</button>
           </div>
         )}
         {section === "novedades" && (
@@ -1728,6 +1752,7 @@ export default function LegajosApp({ onLogout }) {
               <option value="">Todas las sucursales</option>
               {sucursales.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            <button className="btn-secondary" onClick={cargarHorasMasivo}>Cargar horas esperadas a {sucursalFiltro ? "la sucursal" : "todos"}</button>
           </div>
         )}
         {section === "aguinaldo" && (
