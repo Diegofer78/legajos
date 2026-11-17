@@ -503,6 +503,7 @@ export default function LegajosApp({ onLogout }) {
   const [cfDesde, setCfDesde] = useState(monthKey(now.getFullYear(), now.getMonth()));
   const [liquidacionEmployeeId, setLiquidacionEmployeeId] = useState(null);
   const [liquidacionResult, setLiquidacionResult] = useState(null);
+  const [liqMasiva, setLiqMasiva] = useState(null); // { key, sucursal, filas:[{emp, liq}] }
   const [boletaSemana, setBoletaSemana] = useState(1);
   const [seleccionActivos, setSeleccionActivos] = useState({}); // { [empId]: boolean } — no presente = seleccionado
   const [aguinaldoEmployeeId, setAguinaldoEmployeeId] = useState(null);
@@ -818,6 +819,18 @@ export default function LegajosApp({ onLogout }) {
     const resultado = computeLiquidacionCompleta(liquidacionEmployee, key);
     setLiquidacionResult({ employeeId: liquidacionEmployee.id, key, ...resultado });
     flash("Liquidación actualizada");
+  };
+
+  const actualizarTodasLiquidaciones = () => {
+    const grupo = empleados.filter((e) => e.activo !== false && (!sucursalFiltro || e.sucursal === sucursalFiltro));
+    if (grupo.length === 0) { flash("No hay legajos para liquidar"); return; }
+    const filas = grupo.map((emp) => ({ emp, liq: computeLiquidacionCompleta(emp, key) }));
+    setLiqMasiva({ key, sucursal: sucursalFiltro, filas });
+    if (liquidacionEmployee) {
+      const f = filas.find((x) => x.emp.id === liquidacionEmployee.id);
+      if (f) setLiquidacionResult({ employeeId: f.emp.id, key, ...f.liq });
+    }
+    flash(`Liquidaciones actualizadas (${filas.length})`);
   };
 
   const liquidacionVigente = liquidacionResult && liquidacionResult.employeeId === liquidacionEmployeeId && liquidacionResult.key === key ? liquidacionResult : null;
@@ -1526,6 +1539,11 @@ export default function LegajosApp({ onLogout }) {
 
         .row-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
         .row-item { display: grid; gap: 8px; align-items: end; padding: 12px; background: var(--paper); border-radius: 3px; }
+        .liq-tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .liq-tabla th, .liq-tabla td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+        .liq-tabla th:first-child, .liq-tabla td:first-child, .liq-tabla th:nth-child(2), .liq-tabla td:nth-child(2) { text-align: left; }
+        .liq-tabla tbody tr:hover { background: #eae8e2; }
+        .liq-tabla tfoot td { font-weight: 700; border-top: 2px solid var(--ink); border-bottom: none; }
         .vig-bar { display: flex; gap: 16px; align-items: flex-end; background: #e7ede9; border-radius: 3px; padding: 10px 14px; margin-bottom: 16px; flex-wrap: wrap; }
         .vig-bar .hint { flex: 1 1 280px; margin: 0; }
         .vig-bar input { width: 170px; }
@@ -1752,7 +1770,7 @@ export default function LegajosApp({ onLogout }) {
               <option value="">Todas las sucursales</option>
               {sucursales.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
-            <button className="btn-secondary" onClick={cargarHorasMasivo}>Cargar horas esperadas a {sucursalFiltro ? "la sucursal" : "todos"}</button>
+            <button className="btn-save" onClick={actualizarTodasLiquidaciones}>Actualizar todas las liquidaciones{sucursalFiltro ? " (sucursal)" : ""}</button>
           </div>
         )}
         {section === "aguinaldo" && (
@@ -2304,9 +2322,38 @@ export default function LegajosApp({ onLogout }) {
         {section === "liquidacion" && !liquidacionEmployee && (
           <div className="empty-main">
             <h2>Ningún legajo seleccionado</h2>
-            <p>Elegí un legajo de la lista para ver su liquidación del mes.</p>
+            <p>Elegí un legajo de la lista para ver su liquidación del mes, o tocá "Actualizar todas las liquidaciones" para recalcular todas.</p>
           </div>
         )}
+
+        {section === "liquidacion" && !liquidacionEmployee && liqMasiva && (() => {
+          const vig = liqMasiva.key === key;
+          const filas = vig ? liqMasiva.filas.map((f) => ({ emp: empleados.find((e) => e.id === f.emp.id) || f.emp, liq: f.liq })) : [];
+          const tot = (c) => filas.reduce((t, f) => t + (Number(f.liq[c]) || 0), 0);
+          return (
+            <SectionCard accent="var(--primary)" title={`Liquidaciones — ${MESES[cursor.month]} ${cursor.year}`} subtitle={vig ? `${filas.length} legajo(s) · ${liqMasiva.sucursal || "todas las sucursales"}. Tocá un legajo de la lista para ver el detalle.` : "El mes cambió: tocá \"Actualizar todas las liquidaciones\" para calcular este mes."}>
+              {vig && (
+                <div style={{ overflowX: "auto" }}>
+                  <table className="liq-tabla">
+                    <thead><tr><th>Legajo</th><th>Sucursal</th><th>Haberes</th><th>Deducciones</th><th>Neto</th></tr></thead>
+                    <tbody>
+                      {filas.map((f) => (
+                        <tr key={f.emp.id} onClick={() => setLiquidacionEmployeeId(f.emp.id)} style={{ cursor: "pointer" }}>
+                          <td>{f.emp.apellido || "—"}, {f.emp.nombre || "—"}</td>
+                          <td>{f.emp.sucursal || "—"}</td>
+                          <td>{money(f.liq.totalHaberes)}</td>
+                          <td>{money(f.liq.totalDeducciones)}</td>
+                          <td><strong>{money(f.liq.neto)}</strong></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot><tr><td colSpan="2">Total</td><td>{money(tot("totalHaberes"))}</td><td>{money(tot("totalDeducciones"))}</td><td>{money(tot("neto"))}</td></tr></tfoot>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
+          );
+        })()}
 
         {section === "liquidacion" && liquidacionEmployee && (
           <>
